@@ -16,7 +16,7 @@ function addChat(id, type, user, text) {
 }
 
 function startBot(id, host, port, username) {
-  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: false });
+  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: '1.21.11' });
   bots[id] = { host, port, username, bot, chat: [] };
 
   bot.once('spawn', () => {
@@ -158,4 +158,4 @@ if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
       });
     } catch (err) {}
   }, 3000);
-          }
+}
