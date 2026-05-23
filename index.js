@@ -1,5 +1,6 @@
 const mineflayer = require('mineflayer');
 const fetch = require('node-fetch');
+const http = require('http');
 
 const MC_HOST     = process.env.MC_HOST;
 const MC_PORT     = parseInt(process.env.MC_PORT) || 25565;
@@ -11,14 +12,20 @@ if (!MC_HOST || !MC_USERNAME || !WEBHOOK_URL) {
   process.exit(1);
 }
 
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+
 async function sendToDiscord(username, message, color) {
-  await fetch(WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      embeds: [{ description: `**${username}:** ${message}`, color, timestamp: new Date().toISOString() }]
-    })
-  });
+  try {
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{ description: `**${username}:** ${message}`, color, timestamp: new Date().toISOString() }]
+      })
+    });
+  } catch (err) {
+    console.error('Discord hatası:', err.message);
+  }
 }
 
 function createBot() {
