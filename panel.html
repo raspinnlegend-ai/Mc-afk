@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MC Bot Panel</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f13; color: #e0e0f0; font-family: monospace; padding: 20px; }
+h1 { color: #7c6aff; margin-bottom: 20px; font-size: 22px; }
+.card { background: #1a1a24; border: 1px solid #2a2a3a; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+input { background: #0f0f13; border: 1px solid #2a2a3a; color: #e0e0f0; padding: 10px; border-radius: 8px; width: 100%; margin-bottom: 10px; font-family: monospace; font-size: 14px; }
+button { background: #7c6aff; border: none; color: white; padding: 12px; border-radius: 8px; width: 100%; font-size: 15px; cursor: pointer; font-family: monospace; }
+button:hover { background: #6a58e0; }
+.bot-item { background: #0f0f13; border: 1px solid #2a2a3a; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.online { color: #57f287; }
+.offline { color: #ed4245; }
+.stop-btn { background: #ed4245; padding: 6px 14px; width: auto; font-size: 13px; }
+.stop-btn:hover { background: #c0392b; }
+h2 { color: #aaa; font-size: 15px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>⚡ MC Bot Panel</h1>
+
+<div class="card">
+  <h2>Yeni Bot Ekle</h2>
+  <input id="host" placeholder="Sunucu IP (örn: oyna.mcvadisi.com)" />
+  <input id="port" placeholder="Port (varsayılan: 25565)" />
+  <input id="username" placeholder="Bot kullanıcı adı" />
+  <button onclick="startBot()">▶ Botu Başlat</button>
+</div>
+
+<div class="card">
+  <h2>Çalışan Botlar</h2>
+  <div id="bot-list">Yükleniyor...</div>
+</div>
+
+<script>
+async function startBot() {
+  const host = document.getElementById('host').value.trim();
+  const port = document.getElementById('port').value.trim() || '25565';
+  const username = document.getElementById('username').value.trim();
+  if (!host || !username) { alert('IP ve kullanıcı adı zorunlu!'); return; }
+  await fetch('/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, port, username })
+  });
+  document.getElementById('host').value = '';
+  document.getElementById('username').value = '';
+  loadBots();
+}
+
+async function stopBot(id) {
+  await fetch('/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  });
+  loadBots();
+}
+
+async function loadBots() {
+  const res = await fetch('/bots');
+  const bots = await res.json();
+  const list = document.getElementById('bot-list');
+  if (!bots.length) { list.innerHTML = '<p style="color:#555">Henüz bot yok.</p>'; return; }
+  list.innerHTML = bots.map(b => `
+    <div class="bot-item">
+      <div>
+        <div>${b.username} → ${b.host}</div>
+        <div class="${b.online ? 'online' : 'offline'}">${b.online ? '● Çevrimiçi' : '● Çevrimdışı'}</div>
+      </div>
+      <button class="stop-btn" onclick="stopBot('${b.id}')">Durdur</button>
+    </div>
+  `).join('');
+}
+
+loadBots();
+setInterval(loadBots, 5000);
+</script>
+</body>
+</html>
