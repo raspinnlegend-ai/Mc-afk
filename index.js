@@ -68,10 +68,8 @@ function createBot() {
   }, 4 * 60 * 1000);
 }
 
-// Discord komut dinleyici
 async function pollDiscord() {
   if (!DISCORD_BOT_TOKEN || !DISCORD_CHANNEL_ID) return;
-  
   let lastMessageId = null;
 
   setInterval(async () => {
@@ -94,7 +92,6 @@ async function pollDiscord() {
           const text = msg.content.slice(5).trim();
           if (mcBot && text) {
             mcBot.chat(text);
-            console.log(`Discord'dan mesaj gönderildi: ${text}`);
           }
         }
       });
