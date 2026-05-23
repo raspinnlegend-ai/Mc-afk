@@ -7,42 +7,51 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
-http.createServer((req, res) => {
-  if (req.url === '/panel' || req.url === '/') {
-    const html = fs.readFileSync('./panel.html', 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(html);
-  } else if (req.url === '/bots') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(Object.keys(bots).map(id => ({
-      id, host: bots[id].host, username: bots[id].username, online: !!bots[id].bot?.entity
-    }))));
-  } else if (req.method === 'POST' && req.url === '/start') {
-    let body = '';
-    req.on('data', d => body += d);
-    req.on('end', () => {
-      const { host, port, username } = JSON.parse(body);
-      const id = Date.now().toString();
-      startBot(id, host, parseInt(port) || 25565, username);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, id }));
-    });
-  } else if (req.method === 'POST' && req.url === '/stop') {
-    let body = '';
-    req.on('data', d => body += d);
-    req.on('end', () => {
-      const { id } = JSON.parse(body);
-      if (bots[id]) { bots[id].bot?.end(); delete bots[id]; }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true }));
-    });
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-}).listen(process.env.PORT || 3000);
-
 const bots = {};
+
+function addChat(id, type, user, text) {
+  if (!bots[id]) return;
+  bots[id].chat.push({ type, user, text, t: Date.now() });
+  if (bots[id].chat.length > 100) bots[id].chat.shift();
+}
+
+function startBot(id, host, port, username) {
+  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: false });
+  bots[id] = { host, port, username, bot, chat: [] };
+
+  bot.once('spawn', () => {
+    addChat(id, 'system', 'SYS', 'Sunucuya katıldı!');
+    sendToDiscord('🤖 ' + username, host + ' sunucusuna katıldı!', 0x57F287);
+  });
+
+  bot.on('chat', (u, m) => {
+    addChat(id, 'user', u, m);
+    if (u !== username) sendToDiscord(u, m, 0x5865F2);
+  });
+
+  bot.on('message', (msg) => {
+    const text = msg.toString();
+    addChat(id, 'system', 'SYS', text);
+  });
+
+  bot.on('kicked', (reason) => {
+    addChat(id, 'warn', 'SYS', 'Atıldı! Yeniden bağlanıyor...');
+    sendToDiscord('⚠️ ' + username, 'Atıldı!', 0xED4245);
+    setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 10000);
+  });
+
+  bot.on('end', () => {
+    addChat(id, 'warn', 'SYS', 'Bağlantı kesildi...');
+    setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 15000);
+  });
+
+  setInterval(() => {
+    if (bot.entity) {
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 200);
+    }
+  }, 4 * 60 * 1000);
+}
 
 async function sendToDiscord(username, message, color) {
   if (!WEBHOOK_URL) return;
@@ -57,23 +66,73 @@ async function sendToDiscord(username, message, color) {
   } catch (err) {}
 }
 
-function startBot(id, host, port, username) {
-  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: false });
-  bots[id] = { host, port, username, bot };
+http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
 
-  bot.once('spawn', () => sendToDiscord('🤖 ' + username, host + ' sunucusuna katıldı!', 0x57F287));
-  bot.on('chat', (u, m) => { if (u !== username) sendToDiscord(u, m, 0x5865F2); });
-  bot.on('kicked', () => { sendToDiscord('⚠️ ' + username, 'Atıldı!', 0xED4245); setTimeout(() => startBot(id, host, port, username), 10000); });
-  bot.on('end', () => { setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 15000); });
-  setInterval(() => { if (bot.entity) { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 200); } }, 4 * 60 * 1000);
-}
+  if (req.url === '/' || req.url === '/panel') {
+    const html = fs.readFileSync('./panel.html', 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(html);
+  }
 
-// Başlangıç botu (env'den)
+  if (req.url === '/bots') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(Object.entries(bots).map(([id, b]) => ({
+      id, host: b.host, username: b.username,
+      online: !!b.bot?.entity,
+      chat: b.chat
+    }))));
+  }
+
+  if (req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+
+        if (req.url === '/start') {
+          const id = Date.now().toString();
+          startBot(id, data.host, parseInt(data.port) || 25565, data.username);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, id }));
+        }
+
+        if (req.url === '/stop') {
+          if (bots[data.id]) {
+            bots[data.id].bot?.end();
+            delete bots[data.id];
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true }));
+        }
+
+        if (req.url === '/send') {
+          const b = bots[data.id];
+          if (b && b.bot && data.text) {
+            b.bot.chat(data.text);
+            addChat(data.id, 'user', b.username, data.text);
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true }));
+        }
+
+      } catch (e) {
+        res.writeHead(400);
+        return res.end('Bad request');
+      }
+    });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+}).listen(process.env.PORT || 3000);
+
 if (process.env.MC_HOST && process.env.MC_USERNAME) {
   startBot('default', process.env.MC_HOST, parseInt(process.env.MC_PORT) || 25565, process.env.MC_USERNAME);
 }
 
-// Discord komut dinleyici
 if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
   let lastId = null;
   setInterval(async () => {
@@ -89,9 +148,14 @@ if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
         if (msg.author?.bot) return;
         if (msg.content?.startsWith('!yaz ')) {
           const text = msg.content.slice(5).trim();
-          Object.values(bots).forEach(b => { if (b.bot && text) b.bot.chat(text); });
+          Object.entries(bots).forEach(([id, b]) => {
+            if (b.bot && text) {
+              b.bot.chat(text);
+              addChat(id, 'user', b.username, text);
+            }
+          });
         }
       });
     } catch (err) {}
   }, 3000);
-}
+          }
