@@ -6,6 +6,8 @@ const MC_HOST     = process.env.MC_HOST;
 const MC_PORT     = parseInt(process.env.MC_PORT) || 25565;
 const MC_USERNAME = process.env.MC_USERNAME;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 if (!MC_HOST || !MC_USERNAME || !WEBHOOK_URL) {
   console.error('Eksik env değişkeni!');
@@ -13,6 +15,8 @@ if (!MC_HOST || !MC_USERNAME || !WEBHOOK_URL) {
 }
 
 http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+
+let mcBot = null;
 
 async function sendToDiscord(username, message, color) {
   try {
@@ -29,37 +33,76 @@ async function sendToDiscord(username, message, color) {
 }
 
 function createBot() {
-  const bot = mineflayer.createBot({
+  mcBot = mineflayer.createBot({
     host: MC_HOST, port: MC_PORT,
     username: MC_USERNAME,
     auth: 'offline', version: false
   });
 
-  bot.once('spawn', () => {
+  mcBot.once('spawn', () => {
     sendToDiscord('🤖 Bot', 'Sunucuya katıldı!', 0x57F287);
   });
 
-  bot.on('chat', (username, message) => {
-    if (username === bot.username) return;
+  mcBot.on('chat', (username, message) => {
+    if (username === mcBot.username) return;
     sendToDiscord(username, message, 0x5865F2);
   });
 
-  bot.on('kicked', (reason) => {
+  mcBot.on('kicked', (reason) => {
     sendToDiscord('⚠️ Bot', 'Atıldı, yeniden bağlanıyor...', 0xED4245);
+    mcBot = null;
     setTimeout(createBot, 10000);
   });
 
-  bot.on('end', () => {
+  mcBot.on('end', () => {
     sendToDiscord('🔌 Bot', 'Bağlantı kesildi, yeniden bağlanıyor...', 0xFEE75C);
+    mcBot = null;
     setTimeout(createBot, 15000);
   });
 
   setInterval(() => {
-    if (bot.entity) {
-      bot.setControlState('jump', true);
-      setTimeout(() => bot.setControlState('jump', false), 200);
+    if (mcBot && mcBot.entity) {
+      mcBot.setControlState('jump', true);
+      setTimeout(() => mcBot.setControlState('jump', false), 200);
     }
   }, 4 * 60 * 1000);
 }
 
+// Discord komut dinleyici
+async function pollDiscord() {
+  if (!DISCORD_BOT_TOKEN || !DISCORD_CHANNEL_ID) return;
+  
+  let lastMessageId = null;
+
+  setInterval(async () => {
+    try {
+      const url = lastMessageId
+        ? `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages?after=${lastMessageId}&limit=10`
+        : `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages?limit=1`;
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` }
+      });
+
+      const messages = await res.json();
+      if (!Array.isArray(messages) || messages.length === 0) return;
+
+      messages.reverse().forEach(msg => {
+        lastMessageId = msg.id;
+        if (msg.author?.bot) return;
+        if (msg.content?.startsWith('!yaz ')) {
+          const text = msg.content.slice(5).trim();
+          if (mcBot && text) {
+            mcBot.chat(text);
+            console.log(`Discord'dan mesaj gönderildi: ${text}`);
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Discord poll hatası:', err.message);
+    }
+  }, 3000);
+}
+
 createBot();
+pollDiscord();
