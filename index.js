@@ -14,7 +14,7 @@ http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 
 let bot = null;
 let loggedIn = false;
-let reconnectDelay = 15000;
+let reconnectDelay = 30000;
 
 async function sendToDiscord(username, message, color) {
   if (!WEBHOOK_URL) return;
@@ -49,14 +49,14 @@ function createBot() {
   }
 
   bot.once('spawn', () => {
+    // 6 saniye bekle sonra giriş yap
     setTimeout(() => {
       if (bot && !loggedIn) {
         bot.chat(`/giriş ${MC_PASSWORD}`);
         loggedIn = true;
-        reconnectDelay = 15000;
         sendToDiscord('✅ Bot', `${MC_HOST} sunucusuna katıldı!`, 0x57F287);
       }
-    }, 2000);
+    }, 6000);
   });
 
   bot.on('message', (msg) => {
@@ -75,18 +75,26 @@ function createBot() {
     try { r = JSON.parse(reason)?.text || reason; } catch {}
     sendToDiscord('⚠️ Bot', 'Atıldı: ' + r, 0xED4245);
     bot = null;
-    if (r.includes('fast') || r.includes('hızlı')) reconnectDelay = 30000;
+    loggedIn = false;
+    // Çok hızlı atılıyorsa 60 saniye bekle
+    if (typeof r === 'string' && (r.includes('fast') || r.includes('hızlı'))) {
+      reconnectDelay = 60000;
+    } else {
+      reconnectDelay = 30000;
+    }
     setTimeout(createBot, reconnectDelay);
   });
 
   bot.on('error', () => {
     bot = null;
+    loggedIn = false;
     setTimeout(createBot, reconnectDelay);
   });
 
   bot.on('end', () => {
     if (loggedIn) sendToDiscord('🔌 Bot', 'Bağlantı kesildi, yeniden bağlanıyor...', 0xFEE75C);
     bot = null;
+    loggedIn = false;
     setTimeout(createBot, reconnectDelay);
   });
 
