@@ -15,42 +15,81 @@ function addChat(id, type, user, text) {
   if (bots[id].chat.length > 100) bots[id].chat.shift();
 }
 
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 function startBot(id, host, port, username) {
-  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: '1.21.11' });
-  bots[id] = { host, port, username, bot, chat: [] };
+  try {
+    const bot = mineflayer.createBot({
+      host, port, username,
+      auth: 'offline',
+      version: '1.21.1',
+      hideErrors: false,
+      checkTimeoutInterval: 30000,
+      connect: (client) => {
+        setTimeout(() => client.connect(host, port), randomInt(1000, 3000));
+      }
+    });
 
-  bot.once('spawn', () => {
-    addChat(id, 'system', 'SYS', 'Sunucuya katıldı!');
-    sendToDiscord('🤖 ' + username, host + ' sunucusuna katıldı!', 0x57F287);
-  });
+    bots[id] = { host, port, username, bot, chat: [] };
 
-  bot.on('chat', (u, m) => {
-    addChat(id, 'user', u, m);
-    if (u !== username) sendToDiscord(u, m, 0x5865F2);
-  });
+    bot.once('spawn', () => {
+      addChat(id, 'system', 'SYS', 'Sunucuya katıldı!');
+      sendToDiscord('🤖 ' + username, host + ' sunucusuna katıldı!', 0x57F287);
 
-  bot.on('message', (msg) => {
-    const text = msg.toString();
-    addChat(id, 'system', 'SYS', text);
-  });
+      // Rastgele hareket — anti-afk
+      setInterval(() => {
+        if (!bot.entity) return;
+        const moves = ['forward', 'back', 'left', 'right'];
+        const move = moves[randomInt(0, 3)];
+        bot.setControlState(move, true);
+        setTimeout(() => bot.setControlState(move, false), randomInt(300, 800));
+      }, randomInt(25000, 45000));
 
-  bot.on('kicked', (reason) => {
-    addChat(id, 'warn', 'SYS', 'Atıldı! Yeniden bağlanıyor...');
-    sendToDiscord('⚠️ ' + username, 'Atıldı!', 0xED4245);
-    setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 10000);
-  });
+      // Zıplama
+      setInterval(() => {
+        if (!bot.entity) return;
+        bot.setControlState('jump', true);
+        setTimeout(() => bot.setControlState('jump', false), 200);
+      }, randomInt(3 * 60 * 1000, 5 * 60 * 1000));
+    });
 
-  bot.on('end', () => {
-    addChat(id, 'warn', 'SYS', 'Bağlantı kesildi...');
+    bot.on('chat', (u, m) => {
+      addChat(id, 'user', u, m);
+      if (u !== username) sendToDiscord(u, m, 0x5865F2);
+    });
+
+    bot.on('message', (msg) => {
+      const text = msg.toString();
+      if (text.trim()) addChat(id, 'system', 'SYS', text);
+    });
+
+    bot.on('kicked', (reason) => {
+      let r = reason;
+      try { r = JSON.parse(reason)?.text || reason; } catch {}
+      addChat(id, 'warn', 'SYS', 'Atıldı: ' + r);
+      sendToDiscord('⚠️ ' + username, 'Atıldı: ' + r, 0xED4245);
+      bots[id].bot = null;
+      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(8000, 15000));
+    });
+
+    bot.on('error', (err) => {
+      addChat(id, 'warn', 'SYS', 'Hata: ' + err.message);
+      bots[id].bot = null;
+      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(8000, 15000));
+    });
+
+    bot.on('end', () => {
+      addChat(id, 'warn', 'SYS', 'Bağlantı kesildi...');
+      bots[id].bot = null;
+      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(10000, 20000));
+    });
+
+  } catch (err) {
+    addChat(id, 'warn', 'SYS', 'Başlatma hatası: ' + err.message);
     setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 15000);
-  });
-
-  setInterval(() => {
-    if (bot.entity) {
-      bot.setControlState('jump', true);
-      setTimeout(() => bot.setControlState('jump', false), 200);
-    }
-  }, 4 * 60 * 1000);
+  }
 }
 
 async function sendToDiscord(username, message, color) {
@@ -158,4 +197,4 @@ if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
       });
     } catch (err) {}
   }, 3000);
-}
+        }
