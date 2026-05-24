@@ -31,7 +31,7 @@ async function sendToDiscord(username, message, color) {
 
 function createBot() {
   loggedIn = false;
-  
+
   try {
     bot = mineflayer.createBot({
       host: MC_HOST,
@@ -41,13 +41,13 @@ function createBot() {
       version: false,
       hideErrors: false,
       checkTimeoutInterval: 60000,
+      resourcePack: 'accept',
     });
   } catch(e) {
     setTimeout(createBot, reconnectDelay);
     return;
   }
 
-  // Spawn olunca giriş yap
   bot.once('spawn', () => {
     setTimeout(() => {
       if (bot && !loggedIn) {
@@ -59,53 +59,37 @@ function createBot() {
     }, 2000);
   });
 
-  // Sunucu mesajlarını yakala
   bot.on('message', (msg) => {
     const text = msg.toString().trim();
     if (!text) return;
-
-    // Giriş başarılı mesajı
-    if (text.includes('başarı') || text.includes('hoş geldin') || text.includes('giriş')) {
-      sendToDiscord('📢', text, 0x57F287);
-      return;
-    }
-
     sendToDiscord('📢', text, 0xFEE75C);
   });
 
-  // Chat mesajları
   bot.on('chat', (u, m) => {
     if (u === MC_USERNAME) return;
     sendToDiscord(u, m, 0x5865F2);
   });
 
-  // Atılma
   bot.on('kicked', (reason) => {
     let r = reason;
     try { r = JSON.parse(reason)?.text || reason; } catch {}
     sendToDiscord('⚠️ Bot', 'Atıldı: ' + r, 0xED4245);
     bot = null;
-    // Çok hızlı atılıyorsa daha uzun bekle
-    if (r.includes('fast') || r.includes('hızlı')) {
-      reconnectDelay = 30000;
-    }
+    if (r.includes('fast') || r.includes('hızlı')) reconnectDelay = 30000;
     setTimeout(createBot, reconnectDelay);
   });
 
-  bot.on('error', (err) => {
+  bot.on('error', () => {
     bot = null;
     setTimeout(createBot, reconnectDelay);
   });
 
   bot.on('end', () => {
-    if (loggedIn) {
-      sendToDiscord('🔌 Bot', 'Bağlantı kesildi, yeniden bağlanıyor...', 0xFEE75C);
-    }
+    if (loggedIn) sendToDiscord('🔌 Bot', 'Bağlantı kesildi, yeniden bağlanıyor...', 0xFEE75C);
     bot = null;
     setTimeout(createBot, reconnectDelay);
   });
 
-  // Anti-AFK
   setInterval(() => {
     if (bot?.entity && loggedIn) {
       bot.setControlState('jump', true);
@@ -114,7 +98,6 @@ function createBot() {
   }, 4 * 60 * 1000);
 }
 
-// Discord dinleyici
 if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
   let lastId = null;
   setInterval(async () => {
