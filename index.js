@@ -1,96 +1,17 @@
 const mineflayer = require('mineflayer');
 const fetch = require('node-fetch');
 const http = require('http');
-const fs = require('fs');
 
+const MC_HOST = process.env.MC_HOST;
+const MC_PORT = parseInt(process.env.MC_PORT) || 25565;
+const MC_USERNAME = process.env.MC_USERNAME;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
-const bots = {};
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 
-function addChat(id, type, user, text) {
-  if (!bots[id]) return;
-  bots[id].chat.push({ type, user, text, t: Date.now() });
-  if (bots[id].chat.length > 100) bots[id].chat.shift();
-}
-
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function startBot(id, host, port, username) {
-  try {
-    const bot = mineflayer.createBot({
-      host, port, username,
-      auth: 'offline',
-      version: '1.21.1',
-      hideErrors: false,
-      checkTimeoutInterval: 30000,
-      connect: (client) => {
-        setTimeout(() => client.connect(host, port), randomInt(1000, 3000));
-      }
-    });
-
-    bots[id] = { host, port, username, bot, chat: [] };
-
-    bot.once('spawn', () => {
-      addChat(id, 'system', 'SYS', 'Sunucuya katıldı!');
-      sendToDiscord('🤖 ' + username, host + ' sunucusuna katıldı!', 0x57F287);
-
-      // Rastgele hareket — anti-afk
-      setInterval(() => {
-        if (!bot.entity) return;
-        const moves = ['forward', 'back', 'left', 'right'];
-        const move = moves[randomInt(0, 3)];
-        bot.setControlState(move, true);
-        setTimeout(() => bot.setControlState(move, false), randomInt(300, 800));
-      }, randomInt(25000, 45000));
-
-      // Zıplama
-      setInterval(() => {
-        if (!bot.entity) return;
-        bot.setControlState('jump', true);
-        setTimeout(() => bot.setControlState('jump', false), 200);
-      }, randomInt(3 * 60 * 1000, 5 * 60 * 1000));
-    });
-
-    bot.on('chat', (u, m) => {
-      addChat(id, 'user', u, m);
-      if (u !== username) sendToDiscord(u, m, 0x5865F2);
-    });
-
-    bot.on('message', (msg) => {
-      const text = msg.toString();
-      if (text.trim()) addChat(id, 'system', 'SYS', text);
-    });
-
-    bot.on('kicked', (reason) => {
-      let r = reason;
-      try { r = JSON.parse(reason)?.text || reason; } catch {}
-      addChat(id, 'warn', 'SYS', 'Atıldı: ' + r);
-      sendToDiscord('⚠️ ' + username, 'Atıldı: ' + r, 0xED4245);
-      bots[id].bot = null;
-      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(8000, 15000));
-    });
-
-    bot.on('error', (err) => {
-      addChat(id, 'warn', 'SYS', 'Hata: ' + err.message);
-      bots[id].bot = null;
-      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(8000, 15000));
-    });
-
-    bot.on('end', () => {
-      addChat(id, 'warn', 'SYS', 'Bağlantı kesildi...');
-      bots[id].bot = null;
-      setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, randomInt(10000, 20000));
-    });
-
-  } catch (err) {
-    addChat(id, 'warn', 'SYS', 'Başlatma hatası: ' + err.message);
-    setTimeout(() => { if (bots[id]) startBot(id, host, port, username); }, 15000);
-  }
-}
+let bot = null;
 
 async function sendToDiscord(username, message, color) {
   if (!WEBHOOK_URL) return;
@@ -105,73 +26,55 @@ async function sendToDiscord(username, message, color) {
   } catch (err) {}
 }
 
-http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+function createBot() {
+  bot = mineflayer.createBot({
+    host: MC_HOST, port: MC_PORT,
+    username: MC_USERNAME,
+    auth: 'offline', version: false
+  });
 
-  if (req.url === '/' || req.url === '/panel') {
-    const html = fs.readFileSync('./panel.html', 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    return res.end(html);
-  }
+  bot.once('spawn', () => {
+    sendToDiscord('🤖 Bot', 'Sunucuya katıldı!', 0x57F287);
+  });
 
-  if (req.url === '/bots') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(Object.entries(bots).map(([id, b]) => ({
-      id, host: b.host, username: b.username,
-      online: !!b.bot?.entity,
-      chat: b.chat
-    }))));
-  }
+  bot.on('chat', (u, m) => {
+    if (u === MC_USERNAME) return;
+    sendToDiscord(u, m, 0x5865F2);
+  });
 
-  if (req.method === 'POST') {
-    let body = '';
-    req.on('data', d => body += d);
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+  bot.on('message', (msg) => {
+    const text = msg.toString().trim();
+    if (text) sendToDiscord('📢', text, 0xFEE75C);
+  });
 
-        if (req.url === '/start') {
-          const id = Date.now().toString();
-          startBot(id, data.host, parseInt(data.port) || 25565, data.username);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ success: true, id }));
-        }
+  bot.on('kicked', (reason) => {
+    let r = reason;
+    try { r = JSON.parse(reason)?.text || reason; } catch {}
+    sendToDiscord('⚠️ Bot', 'Atıldı: ' + r, 0xED4245);
+    bot = null;
+    setTimeout(createBot, 10000);
+  });
 
-        if (req.url === '/stop') {
-          if (bots[data.id]) {
-            bots[data.id].bot?.end();
-            delete bots[data.id];
-          }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ success: true }));
-        }
+  bot.on('error', () => {
+    bot = null;
+    setTimeout(createBot, 10000);
+  });
 
-        if (req.url === '/send') {
-          const b = bots[data.id];
-          if (b && b.bot && data.text) {
-            b.bot.chat(data.text);
-            addChat(data.id, 'user', b.username, data.text);
-          }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ success: true }));
-        }
+  bot.on('end', () => {
+    sendToDiscord('🔌 Bot', 'Bağlantı kesildi, yeniden bağlanıyor...', 0xFEE75C);
+    bot = null;
+    setTimeout(createBot, 15000);
+  });
 
-      } catch (e) {
-        res.writeHead(400);
-        return res.end('Bad request');
-      }
-    });
-    return;
-  }
-
-  res.writeHead(404);
-  res.end();
-}).listen(process.env.PORT || 3000);
-
-if (process.env.MC_HOST && process.env.MC_USERNAME) {
-  startBot('default', process.env.MC_HOST, parseInt(process.env.MC_PORT) || 25565, process.env.MC_USERNAME);
+  setInterval(() => {
+    if (bot?.entity) {
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 200);
+    }
+  }, 4 * 60 * 1000);
 }
 
+// Discord dinleyici — her mesajı direkt gönder
 if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
   let lastId = null;
   setInterval(async () => {
@@ -185,16 +88,12 @@ if (DISCORD_BOT_TOKEN && DISCORD_CHANNEL_ID) {
       msgs.reverse().forEach(msg => {
         lastId = msg.id;
         if (msg.author?.bot) return;
-        if (msg.content?.startsWith('!yaz ')) {
-          const text = msg.content.slice(5).trim();
-          Object.entries(bots).forEach(([id, b]) => {
-            if (b.bot && text) {
-              b.bot.chat(text);
-              addChat(id, 'user', b.username, text);
-            }
-          });
+        if (bot && msg.content?.trim()) {
+          bot.chat(msg.content.trim());
         }
       });
     } catch (err) {}
-  }, 3000);
-        }
+  }, 2000);
+}
+
+createBot();
