@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node --max-old-space-size=400 index.js"
   },
   "dependencies": {
     "mineflayer": "^4.23.0",
